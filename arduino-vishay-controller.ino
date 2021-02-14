@@ -59,6 +59,7 @@
  * Global Variable
  */
 auto timer = timer_create_default();  // Timer Helper Class
+
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 volatile char readData[2] = {0};
 volatile uint32_t toggleCount = 0;
@@ -71,15 +72,24 @@ uint16_t proximityTable[DIST_LOOKUP_LEN] = {
 };
 Sensor sensor;
 
+#define NUMCOLOUR 9
+uint8_t LED_R[NUMCOLOUR] = { 255, 0,    0,    229,  255,  255, 255, 170,  0 };
+uint8_t LED_G[NUMCOLOUR] = { 244, 242,  255,  255,  170,  0,   0,   0,    0 };
+uint8_t LED_B[NUMCOLOUR] = { 150, 255,  0,    0,    0,    38,  185, 255,  255 };
+bool isColourChanging = false;
+uint8_t colourIdx = 0;
+Timer<>::Task colourChangeTask;
+
 /*
  * Function Prototypes
  */
 void sensorSetup(void);
 bool sensorQuery(void *);
 bool serialQuery(void *);
+bool changeColour(void *);
 bool ledUpdate(void *);
 void sampleSensor(void);
-void setWhiteLED(double intensity);
+void setLED(double intensity);
 
 void setup() {
   Wire.begin();
@@ -91,7 +101,7 @@ void setup() {
   sensorSetup();
   
   pixels.begin();
-  setWhiteLED(0.01);
+  setLED(0.0);
 
   // Set up timer tasks
   timer.every(10, sensorQuery);
@@ -159,12 +169,25 @@ void sampleSensor(void) {
     intensity = max(intensity, 0.008);
     intensity = min(intensity, 1);
   }
+
+  // If controller shows LED as on right now
+  if (((toggleCount % 2) != 0)) {
+    if ((sensor.estimatedDistance <= 5) && !isColourChanging) {
+      colourChangeTask = timer.every(2000, changeColour);
+      isColourChanging = true;
+    }
+    
+    if ((sensor.estimatedDistance > 5) && isColourChanging) {
+      timer.cancel(colourChangeTask);
+      isColourChanging = false;
+    }
+  }
 }
 
-void setWhiteLED(double intensity) {
-  int r = (int) (LED_R_VAL * intensity);
-  int g = (int) (LED_G_VAL * intensity);
-  int b = (int) (LED_B_VAL * intensity);
+void setLED(double intensity) {
+  int r = (int) (LED_R[colourIdx] * intensity);
+  int g = (int) (LED_G[colourIdx] * intensity);
+  int b = (int) (LED_B[colourIdx] * intensity);
 
   for(int i=0; i<NUMPIXELS; i++) { // For each pixel...
     pixels.setPixelColor(i, pixels.Color(r, g, b));
@@ -195,10 +218,15 @@ bool serialQuery(void *) {
 
 bool ledUpdate(void *) {
   if ((toggleCount % 2) == 1) {
-    setWhiteLED(intensity);
+    setLED(intensity);
   } else {
-    setWhiteLED(0);
+    setLED(0);
   }
 
+  return true;
+}
+
+bool changeColour(void *) {
+  colourIdx = (colourIdx + 1) % NUMCOLOUR;
   return true;
 }
